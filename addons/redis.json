@@ -1,0 +1,85 @@
+﻿{
+  "$schema": "http://schema.management.azure.com/schemas/2015-01-01/deploymentTemplate.json#",
+  "contentVersion": "1.0.0.0",
+  "variables": {
+    "webApiVersion": "2016-08-01",
+    "redisApiVersion": "2016-04-01",
+    "singleWebAppNameTidy": "[toLower(trim(parameters('singleWebAppName')))]",
+    "redisCacheNameTidy":  "[toLower(trim(parameters('redisCacheName')))]"
+  },
+  "parameters": {
+    "standard": {
+      "type": "secureObject",
+      "defaultValue": {
+        "deploymentId": null,
+        "location": null 
+      }
+    },
+    "extension": {
+      "type": "secureObject",
+      "defaultValue": {
+        "redisMsDeployPackageUrl": null,
+        "redisCacheName": null
+      }
+    },
+    "deploymentId": {
+      "type": "string",
+      "defaultValue": "[coalesce(parameters('standard').deploymentId, resourceGroup().name)]"
+    },
+    "redisCacheName": {
+      "type": "string",
+      "defaultValue": "[coalesce(parameters('extension').redisCacheName, concat(parameters('deploymentId'), '-redis'))]"
+    },
+    "redisMsDeployPackageUrl": {
+      "type": "securestring",
+      "minLength": 1,
+      "defaultValue": "[parameters('extension').redisMsDeployPackageUrl]"
+    },
+    "singleWebAppName": {
+      "type": "string",
+      "minLength": 1,
+      "defaultValue": "[coalesce(parameters('standard').singleWebAppName, concat(parameters('deploymentId'), '-single'))]"
+    },
+    "location": {
+      "type": "string",
+      "minLength": 1,
+      "defaultValue": "[coalesce(parameters('standard').location, resourceGroup().location)]"
+    }
+  },
+  "resources": [
+    {
+      "type": "Microsoft.Cache/Redis",
+      "name": "[variables('redisCacheNameTidy')]",
+      "apiVersion": "[variables('redisApiVersion')]",
+      "location": "[parameters('location')]",
+      "properties": {
+        "sku": {
+          "name": "Standard",
+          "family": "C",
+          "capacity": "1"
+        },
+        "enableNonSslPort": false
+      }
+    },
+    {
+      "name": "[concat(variables('singleWebAppNameTidy'), '/', 'MSDeploy')]",
+      "type": "Microsoft.Web/sites/extensions",
+      "location": "[parameters('location')]",
+      "apiVersion": "[variables('webApiVersion')]",
+      "properties": {
+        "addOnPackages": [
+          {
+            "packageUri": "[parameters('redisMsDeployPackageUrl')]",
+            "setParameters": {
+              "Application Path": "[variables('singleWebAppNameTidy')]",
+              "Redis Connection String": "[concat(reference(resourceId('Microsoft.Cache/Redis', variables('redisCacheNameTidy')), variables('redisApiVersion')).hostName, ':', reference(resourceId('Microsoft.Cache/Redis', variables('redisCacheNameTidy')), variables('redisApiVersion')).sslPort, ',password=', listKeys(resourceId('Microsoft.Cache/Redis', variables('redisCacheNameTidy')), variables('redisApiVersion')).primaryKey, ',ssl=True,abortConnect=False')]"
+            }
+          }
+        ]
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.Cache/Redis', variables('redisCacheNameTidy'))]"
+      ]
+    }
+  ]
+}
